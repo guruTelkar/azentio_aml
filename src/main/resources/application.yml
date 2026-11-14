@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/aml}
+    username: ${DB_USERNAME:aml}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+aml:
+  scenarios:
+    cash-structuring:
+      band-floor: 800000
+      reporting-threshold: 1000000
+      min-count: 3
+      window: 168h
+    rapid-in-out:
+      min-inflow: 500000
+      outflow-ratio: 0.90
+      window: 48h
