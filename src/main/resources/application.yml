@@ -9,8 +9,17 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: never
 
 aml:
+  batch:
+    grid-size: 4
+    chunk-size: 200
+    fetch-size: 1000
   scenarios:
     cash-structuring:
       band-floor: 800000

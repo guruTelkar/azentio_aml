@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.azentio.aml.alert.AlertSource;
+import com.azentio.aml.alert.AlertWriteResult;
 import com.azentio.aml.alert.AlertWriter;
 import com.azentio.aml.api.TransactionConflictException;
 import com.azentio.aml.config.ScenarioProperties;
@@ -70,8 +71,8 @@ public class TransactionCheckService {
 			ObjectNode item = triggeredJson.addObject();
 			item.put("scenarioCode", trigger.scenarioCode().name());
 			item.set("detail", objectMapper.valueToTree(trigger.detail()));
-			UUID alertId = alertWriter.write(transaction, trigger, AlertSource.REALTIME);
-			alertIds.add(alertId.toString());
+			AlertWriteResult alert = alertWriter.write(transaction, trigger, AlertSource.REALTIME);
+			alertIds.add(alert.alertId().toString());
 		}
 
 		current.setResponseJson(response.toString());

@@ -23,21 +23,22 @@ public class AlertWriter {
 		this.objectMapper = objectMapper;
 	}
 
-	public UUID write(Transaction transaction, ScenarioTrigger trigger, AlertSource source) {
+	public AlertWriteResult write(Transaction transaction, ScenarioTrigger trigger, AlertSource source) {
 		LocalDate alertDate = transaction.txnTime().atZone(BANK_ZONE).toLocalDate();
 		return alerts.findByAccountNumberAndScenarioCodeAndAlertDate(
 						transaction.accountNumber(), trigger.scenarioCode(), alertDate)
-				.map(AlertEntity::getId)
+				.map(alert -> new AlertWriteResult(alert.getId(), false))
 				.orElseGet(() -> create(transaction, trigger, alertDate, source));
 	}
 
-	private UUID create(
+	private AlertWriteResult create(
 			Transaction transaction,
 			ScenarioTrigger trigger,
 			LocalDate alertDate,
 			AlertSource source) {
 		String details = objectMapper.valueToTree(trigger.detail()).toString();
 		AlertEntity alert = new AlertEntity(transaction, trigger, alertDate, source, details);
-		return alerts.saveAndFlush(alert).getId();
+		UUID id = alerts.saveAndFlush(alert).getId();
+		return new AlertWriteResult(id, true);
 	}
 }

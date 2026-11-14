@@ -22,6 +22,8 @@ public final class SyntheticTransactionGenerator {
 	private static final String STRUCTURING_DECOY_ACCOUNT = "900000000002";
 	private static final String RAPID_IN_OUT_ACCOUNT = "900000000003";
 	private static final String RAPID_IN_OUT_DECOY_ACCOUNT = "900000000004";
+	private static final long RANDOM_ACCOUNT_BASE = 50_000_000_000L;
+	private static final long ACCOUNT_PARTITION_WIDTH = 250_000_000_000L;
 	private static final String CSV_HEADER =
 			"txnId,accountNumber,txnTime,amount,direction,channel,counterpartyAccount";
 
@@ -47,7 +49,9 @@ public final class SyntheticTransactionGenerator {
 	}
 
 	private static Transaction randomTransaction(int index, SplittableRandom random, Instant asOf) {
-		String account = accountNumber(200_000_000_000L + index);
+		int partition = index % 4;
+		long accountValue = RANDOM_ACCOUNT_BASE + partition * ACCOUNT_PARTITION_WIDTH + index / 4;
+		String account = accountNumber(accountValue);
 		String counterparty = accountNumber(300_000_000_000L + index);
 		long secondsAgo = random.nextLong(Duration.ofDays(30).toSeconds());
 		int amount = random.nextInt(1, 500_000);

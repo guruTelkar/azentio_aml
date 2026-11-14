@@ -8,6 +8,7 @@ AML transaction monitoring for two scenarios: cash structuring and rapid in-out 
 - `transaction`: transaction persistence and the real-time check flow.
 - `alert`: idempotent alert writing, querying, and contributing transaction storage.
 - `api`: validated REST requests, masked alert responses, and consistent error bodies.
+- `batch`: partitioned, restartable Spring Batch re-score that uses the same scenario engine as the real-time API.
 - PostgreSQL schema is managed with Flyway. H2 in PostgreSQL mode is used for the regular test suite.
 
 The real-time lookback uses `(txnTime - window, txnTime]` and an index on `(account_number, txn_time)`. Cash structuring counts qualifying cash credits in the preceding 168 hours. Rapid in-out sums all account credits and debits over the preceding 48 hours for a debit check. All comparisons use `BigDecimal`; event timestamps are instants and alert dates use `Asia/Kolkata`.
@@ -37,6 +38,42 @@ mvn spring-boot:run
 ```
 
 Flyway applies the schema on startup. The API listens on `http://localhost:8080`.
+
+## Partitioned re-score
+
+The `rescoreJob` accepts inclusive `fromDate` and `toDate` parameters in `YYYY-MM-DD` format, interpreted in `Asia/Kolkata`. It divides the 12-digit account-number space into disjoint ranges and reads each partition with an ordered JDBC cursor. Each account is grouped once, including the maximum scenario lookback before `fromDate`, so boundary transactions can contribute to triggers. Batch-created alerts use the same account/scenario/IST-date uniqueness key as real-time alerts.
+
+Generate a reproducible million-row input file (this example covers 2026-10-15 through 2026-11-14):
+
+```sh
+mvn -q -DskipTests compile
+java -cp target/classes com.azentio.aml.generator.SyntheticTransactionGenerator \
+  --rows 1000000 --seed 42 --as-of 2026-11-14T07:00:00Z \
+  --output data/transactions.csv --ground-truth data/ground-truth.json
+```
+
+Start PostgreSQL and the application once so Flyway creates the tables. Stop the application after startup, then load the CSV with PostgreSQL's client-side `COPY` (the file path is on the host):
+
+```sh
+cp .env.example .env
+docker compose up -d postgres
+set -a
+. ./.env
+set +a
+mvn spring-boot:run
+# After Flyway completes, stop the application and load the generated CSV:
+PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "\copy transactions (txn_id, account_number, txn_time, amount, direction, channel, counterparty_account) FROM 'data/transactions.csv' WITH (FORMAT csv, HEADER true)"
+```
+
+Run the re-score for that generated data range. `run.id` is an identifying job parameter, so use a new value for each intentional rerun; alert uniqueness prevents duplicate account/scenario/date alerts:
+
+```sh
+mvn spring-boot:run \
+  -Dspring-boot.run.arguments="--spring.batch.job.enabled=true fromDate=2026-10-15 toDate=2026-11-14 run.id=1"
+```
+
+The application logs the job status, transactions read (including lookback rows), newly written alerts, and elapsed time. The integration test checks real-time/batch alert-key parity, lookback handling, partition execution, and duplicate-free reruns.
 
 ## API examples
 
@@ -123,8 +160,10 @@ java -cp target/classes com.azentio.aml.generator.SyntheticTransactionGenerator 
   --ground-truth data/ground-truth.json
 ```
 
-The generator includes a three-deposit structuring account, a two-deposit structuring near miss, a 90% rapid in-out account, and an 85% rapid in-out near miss. Remaining rows are deterministic low-value transactions assigned to distinct accounts so they do not accidentally trigger either scenario.
+The generator includes a three-deposit structuring account, a two-deposit structuring near miss, a 90% rapid in-out account, and an 85% rapid in-out near miss. Remaining rows are deterministic low-value transactions assigned to distinct accounts distributed across the four default batch account partitions, so they do not accidentally trigger either scenario.
 
 ## Performance and next steps
 
-No PostgreSQL load or throughput benchmark has been recorded yet. The next milestone is the partitioned Spring Batch re-score, then measured PostgreSQL runs and the React investigator UI.
+One local validation run loaded one million generated rows with PostgreSQL `COPY`, then completed the re-score in 38.99 seconds (about 25.6k rows/second). The job read all 1,000,000 rows and produced the two planted alerts, with no near-miss alerts. This was PostgreSQL 17.12 in a local Docker container, Java 25, and the default four partitions/chunk size 200/fetch size 1000; resources were not pinned, so treat this as indicative rather than a production benchmark.
+
+The next milestone is the React investigator UI and a repeatable, resource-controlled PostgreSQL benchmark.
